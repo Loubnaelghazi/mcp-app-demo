@@ -9,40 +9,69 @@ from mcp import ClientSession
 from mcp.client.sse import sse_client
 
 # Configuration MCP
-MCP_SERVER_URL = "http://localhost:8000/sse"
+MCP_RAG_URL = "http://localhost:8001/sse"
+MCP_SCRAPER_URL = "http://localhost:8000/sse"
 
-async def call_mcp_tool(tool_name: str, params: dict):
-    """Appelle un outil MCP via SSE et retourne la réponse."""
+# Appel MCP RAG 
+async def call_rag_tool(tool_name: str, params: dict):
     try:
-        async with sse_client(MCP_SERVER_URL) as streams:
+        async with sse_client(MCP_RAG_URL) as streams:
             async with ClientSession(streams[0], streams[1]) as session:
                 await session.initialize()
                 result = await session.call_tool(tool_name, arguments=params)
                 return result
     except Exception as e:
-        st.error(f"Erreur lors de l'appel MCP: {str(e)}")
+        st.error(f"Erreur lors de l'appel MCP RAG: {str(e)}")
         return None
 
-def run_async_tool(tool_name: str, params: dict):
-  
+def run_rag_tool(tool_name: str, params: dict):
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(call_mcp_tool(tool_name, params))
+        result = loop.run_until_complete(call_rag_tool(tool_name, params))
         loop.close()
         return result
     except Exception as e:
-        st.error(f"Erreur lors de l'exécution asynchrone: {str(e)}")
+        st.error(f"Erreur lors de l'exécution asynchrone RAG: {str(e)}")
         return None
+
+# Appel MCP Scraper (Web)
+async def call_scraper_tool(tool_name: str, params: dict):
+    try:
+        async with sse_client(MCP_SCRAPER_URL) as streams:
+            async with ClientSession(streams[0], streams[1]) as session:
+                await session.initialize()
+                result = await session.call_tool(tool_name, arguments=params)
+                return result
+    except Exception as e:
+        st.error(f"Erreur lors de l'appel MCP Scraper: {str(e)}")
+        return None
+
+def run_scraper_tool(tool_name: str, params: dict):
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(call_scraper_tool(tool_name, params))
+        loop.close()
+        return result
+    except Exception as e:
+        st.error(f"Erreur lors de l'exécution asynchrone Scraper: {str(e)}")
+        return None
+
+def get_session_id():
+    return st.session_state.get("session_id", str(hash(st.session_state.get('file_path', 'default'))))
+
+############################################################################################
+
+# so we can can call the tool we want or ressource.... so eassily
 
 def main():
     st.set_page_config(
-        page_title="MCP Web Scraper App",
+        page_title="MCP Web App",
         page_icon="🕷️",
-        layout="wide"
-    )
+        layout="wide")
     
-    st.title("🕷️ MCP Web Scraper Application")
+    st.title(" MCP Web Application")
     st.markdown("Interface pour scraper et analyser des pages web avec MCP")
     
     # Sidebar
@@ -62,33 +91,55 @@ def main():
     # TAB 1 - RAG PDF 
     with tab1:
         st.header("📄 Upload de documents")
-        uploaded_file = st.file_uploader("Choisir un fichier", type=['pdf', 'docx'])
-        
+        uploaded_file = st.file_uploader("Choisir un fichier", type=['pdf'])
+
+        if "session_id" not in st.session_state:
+            st.session_state["session_id"] = str(hash(str(time.time()) + str(os.urandom(8))))
+        session_id = st.session_state["session_id"]
+
         if uploaded_file is not None:
             with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as tmp_file:
                 tmp_file.write(uploaded_file.getvalue())
                 file_path = tmp_file.name
-            
+
             st.session_state['file_path'] = file_path
             st.session_state['file_name'] = uploaded_file.name
-            
-            if st.button("Traiter le document"):
-                with st.spinner("Traitement du document..."):
-                    result = run_async_tool("parse_file", {"file_path": file_path})
-                    if result is None:
-                        st.error("Erreur lors du traitement du document! Vérifiez la connexion au serveur")
-                    elif isinstance(result, str):
-                        st.session_state['document_text'] = result
-                        st.success("Document traité avec succès!")
-                        st.info(f"Le document contient {len(result.split())} mots.")
-                        with st.expander("Aperçu du document"):
-                            st.text(result[:1000] + ("..." if len(result) > 1000 else ""))
+
+            if st.button("Indexer le PDF pour le chatbot"):
+                with st.spinner("Indexation du PDF..."):
+                    result = run_rag_tool("index_pdf", {"file_path": file_path, "session_id": session_id})
+                    if result:
+                        st.success(result)
                     else:
-                        st.session_state["document_text"] = str(result)
-                        st.success("Document traité!")
-                        with st.expander("Aperçu du document"):
-                            st.json(result)
-    
+                        st.error("Erreur lors de l'indexation du PDF.")
+
+        # Chatbot
+        if 'file_path' in st.session_state:
+            st.subheader("💬 Posez une question sur votre PDF")
+            user_question = st.text_input("Votre question")
+            if st.button("Interroger le PDF"):
+                with st.spinner("Recherche de la réponse..."):
+                    answer = run_rag_tool("rag_query", {"question": user_question, "session_id": session_id})
+                    if answer:
+                        if hasattr(answer, 'content') and isinstance(answer.content, list) and len(answer.content) > 0:
+                            content_text = ""
+                            for item in answer.content:
+                                if hasattr(item, 'text'):
+                                    content_text += item.text + "\n"
+                            
+                            if content_text:
+                                st.success(content_text.strip())
+                            else:
+                                st.success(str(answer))
+                        elif hasattr(answer, 'text'):
+                            st.success(answer.text)
+                        elif isinstance(answer, dict) and 'text' in answer:
+                            st.success(answer['text'])
+                        else:
+                            st.success(str(answer))
+                    else:
+                        st.error("Aucune réponse trouvée ou PDF non indexé.")
+
     # TAB 2 - Web Scraper
     with tab2:
         st.header("🕷️ Web Scraper MCP")
@@ -132,7 +183,7 @@ def main():
                         if max_length:
                             params["max_length"] = max_length
                         
-                        result = run_async_tool("scrape_webpage", params)
+                        result = run_scraper_tool("scrape_webpage", params)
                         
                         if result:
                             st.session_state['scrape_result'] = result
@@ -147,7 +198,7 @@ def main():
             if st.button("🔗 Extraire les liens"):
                 if url:
                     with st.spinner("Extraction des liens..."):
-                        result = run_async_tool("extract_links", {
+                        result = run_scraper_tool("extract_links", {
                             "url": url,
                             "filter_domain": False,
                             "link_type": "all"
@@ -165,7 +216,7 @@ def main():
             if st.button("ℹ️ Infos de la page"):
                 if url:
                     with st.spinner("Récupération des informations..."):
-                        result = run_async_tool("get_page_info", {"url": url})
+                        result = run_scraper_tool("get_page_info", {"url": url})
                         
                         if result:
                             st.session_state['page_info'] = result
@@ -195,7 +246,7 @@ def main():
                 urls_list = [url.strip() for url in urls_text.strip().split('\n') if url.strip()]
                 if urls_list:
                     with st.spinner(f"Scraping de {len(urls_list)} pages..."):
-                        result = run_async_tool("scrape_multiple_pages", {
+                        result = run_scraper_tool("scrape_multiple_pages", {
                             "urls": urls_list,
                             "format": format_output,
                             "delay": delay,
@@ -218,6 +269,7 @@ def main():
 
         result = st.session_state.get('scrape_result')
 
+       
         if result:
             st.subheader(f"🕷️ Contenu scraped de: {st.session_state.get('scrape_url', '')}")
 
@@ -234,6 +286,7 @@ def main():
             # 
             col10, col11 = st.columns(2)
             with col10:
+               
                 try:
                     if isinstance(result, str):
                         data = result
@@ -328,7 +381,6 @@ def main():
             except:
                 st.text(st.session_state['page_info'])
         
-        # Résultat du scraping multiple
         if 'multiple_scrape_result' in st.session_state:
             st.subheader("📚 Résultats du scraping multiple")
             st.text_area("Contenu multiple", st.session_state['multiple_scrape_result'], height=400)
@@ -339,6 +391,10 @@ def main():
                 file_name=f"multiple_scraped_{int(time.time())}.txt",
                 mime="text/plain"
             )
+
+
+
+
 
 if __name__ == "__main__":
     main()

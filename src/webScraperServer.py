@@ -11,14 +11,11 @@ import json
 from typing import List, Dict, Any, Optional
 import re
 import logging
-import asyncio
 from contextlib import asynccontextmanager
 
-# Configuration du logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialisation du serveur MCP avec une configuration robuste
 mcp = FastMCP("web-scraper")
 
 
@@ -32,17 +29,17 @@ DEFAULT_HEADERS = {
 }
 
 def is_valid_url(url: str) -> bool:
-    """Valide une URL"""
     try:
         if not url or not isinstance(url, str):
             return False
         result = urlparse(url)
         return all([result.scheme in ['http', 'https'], result.netloc])
+    
     except Exception:
+
         return False
 
 def clean_text(text: str) -> str:
-    """Nettoie le texte extrait"""
 
     if not text:
         return ""
@@ -50,6 +47,7 @@ def clean_text(text: str) -> str:
 
     text = re.sub(r'\s+', ' ', text)
     text = re.sub(r'\n\s*\n', '\n\n', text)
+
     return text.strip()
 
 def safe_request(url: str, timeout: int = 15, **kwargs) -> requests.Response:
@@ -79,18 +77,21 @@ def safe_request(url: str, timeout: int = 15, **kwargs) -> requests.Response:
         
     except requests.exceptions.Timeout:
         raise McpError(ErrorData(INTERNAL_ERROR, f"Timeout lors de la requête vers {url}"))
+    
     except requests.exceptions.ConnectionError:
         raise McpError(ErrorData(INTERNAL_ERROR, f"Erreur de connexion vers {url}"))
+    
     except requests.exceptions.HTTPError as e:
         raise McpError(ErrorData(INTERNAL_ERROR, f"Erreur HTTP {e.response.status_code}: {str(e)}"))
+    
     except requests.exceptions.RequestException as e:
         raise McpError(ErrorData(INTERNAL_ERROR, f"Erreur de requête: {str(e)}"))
+    
     except Exception as e:
         raise McpError(ErrorData(INTERNAL_ERROR, f"Erreur inattendue lors de la requête: {str(e)}"))
 
 def get_page_metadata(soup: BeautifulSoup, url: str) -> Dict[str, Any]:
 
-    """Extrait les métadonnees de la page de maniere sécuriseee"""
     metadata = {
         'url': url,
         'title': '',
@@ -101,8 +102,7 @@ def get_page_metadata(soup: BeautifulSoup, url: str) -> Dict[str, Any]:
         'canonical_url': '',
         'og_title': '',
         'og_description': '',
-        'og_image': ''
-    }
+        'og_image': ''}
     
     try:
        
@@ -555,12 +555,7 @@ def get_page_info(url: str) -> str:
 
 @mcp.tool()
 def health_check() -> str:
-    """
-    Vérifie l'état de santé du serveur MCP.
-    
-    Returns:
-        JSON avec les informations de santé
-    """
+
     try:
         health_info = {
             'status': 'healthy',
@@ -576,13 +571,14 @@ def health_check() -> str:
 
 if __name__ == "__main__":
   
-    logger.info("Démarrage du serveur MCP Web Scraper...")
+    logger.info("Demarrage du serveur MCP Web Scraper...")
 
     try:
      
         mcp.run(transport='sse')
+        
     except KeyboardInterrupt:
-        logger.info("Arrêt du serveur demandé par l'utilisateur")
+        logger.info("Arret du serveur demandé par l'utilisateur")
     except Exception as e:
-        logger.error(f"Erreur fatale lors du démarrage du serveur: {str(e)}")
+        logger.error(f"Erreur fatale lors du demarrage du serveur: {str(e)}")
         raise
